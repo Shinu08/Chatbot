@@ -9,6 +9,10 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-here')
 CORS(app)
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
 # Sample events database
 events = [
     {"id": 1, "name": "AI & Machine Learning Workshop", "category": "technical", 
@@ -181,11 +185,6 @@ I can help you find events based on your interests. Try asking:
 • **"Upcoming events"** - What's happening soon
 
 What interests you? Let me know and I'll find perfect events for you! 🎉"""
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
