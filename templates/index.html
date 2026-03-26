@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>University Event Chatbot</title>
+    <title>University Event Assistant</title>
     <style>
         * {
             margin: 0;
@@ -15,15 +15,21 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            overflow: hidden;
         }
         
         .chat-container {
-            width: 90%;
-            max-width: 800px;
-            height: 80vh;
+            max-width: 1200px;
+            margin: 0 auto;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .chat-card {
+            width: 100%;
+            height: 90vh;
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
@@ -32,34 +38,45 @@
             overflow: hidden;
         }
         
-        .chat-header {
+        .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 20px;
+            padding: 20px 30px;
             text-align: center;
         }
         
-        .chat-header h1 {
-            font-size: 24px;
+        .header h1 {
+            font-size: 28px;
             margin-bottom: 5px;
         }
         
-        .chat-header p {
+        .header p {
             font-size: 14px;
             opacity: 0.9;
         }
         
-        .chat-messages {
+        .messages {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            background: #f5f5f5;
+            background: #f8f9fa;
         }
         
         .message {
             margin-bottom: 15px;
             display: flex;
-            animation: fadeIn 0.3s ease;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .user-message {
@@ -72,13 +89,15 @@
         
         .message-content {
             max-width: 70%;
-            padding: 10px 15px;
-            border-radius: 15px;
+            padding: 12px 18px;
+            border-radius: 18px;
             word-wrap: break-word;
+            line-height: 1.5;
+            white-space: pre-wrap;
         }
         
         .user-message .message-content {
-            background: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border-bottom-right-radius: 5px;
         }
@@ -90,7 +109,7 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         
-        .chat-input {
+        .input-area {
             padding: 20px;
             background: white;
             border-top: 1px solid #e0e0e0;
@@ -98,28 +117,58 @@
             gap: 10px;
         }
         
-        .chat-input input {
+        .input-area input {
             flex: 1;
-            padding: 10px;
+            padding: 12px 18px;
             border: 1px solid #ddd;
             border-radius: 25px;
             outline: none;
             font-size: 16px;
         }
         
-        .chat-input button {
-            padding: 10px 20px;
-            background: #667eea;
+        .input-area input:focus {
+            border-color: #667eea;
+        }
+        
+        .input-area button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
             border-radius: 25px;
             cursor: pointer;
             font-size: 16px;
+            font-weight: 500;
             transition: transform 0.2s;
         }
         
-        .chat-input button:hover {
+        .input-area button:hover {
             transform: scale(1.05);
+        }
+        
+        .suggestions {
+            padding: 10px 20px;
+            background: #f9f9f9;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .suggestion {
+            padding: 6px 14px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        
+        .suggestion:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
         }
         
         .typing-indicator {
@@ -148,100 +197,91 @@
             30% { transform: translateY(-10px); }
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .suggestions {
-            padding: 10px 20px;
-            background: #f9f9f9;
-            border-top: 1px solid #e0e0e0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        
-        .suggestion-chip {
-            padding: 5px 12px;
-            background: #e0e0e0;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: background 0.2s;
-        }
-        
-        .suggestion-chip:hover {
-            background: #667eea;
-            color: white;
-        }
-        
-        @media (max-width: 600px) {
+        @media (max-width: 768px) {
             .message-content {
                 max-width: 85%;
                 font-size: 14px;
             }
             
-            .chat-header h1 {
+            .header h1 {
                 font-size: 20px;
             }
+            
+            .input-area button {
+                padding: 12px 18px;
+            }
+        }
+        
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div class="chat-header">
-            <h1>🎓 University Event Assistant</h1>
-            <p>Your personal event recommendation chatbot</p>
-        </div>
-        
-        <div class="chat-messages" id="chatMessages">
-            <div class="message bot-message">
-                <div class="message-content">
-                    👋 Hello! I'm your University Event Assistant.<br><br>
-                    I can help you find events based on your interests! Try:<br>
-                    • "I love coding and AI"<br>
-                    • "Show me career events"<br>
-                    • "What's trending?"<br>
-                    • "Any cultural festivals?"
+        <div class="chat-card">
+            <div class="header">
+                <h1>🎓 University Event Assistant</h1>
+                <p>Your personal guide to campus events and activities</p>
+            </div>
+            
+            <div class="messages" id="messages">
+                <div class="message bot-message">
+                    <div class="message-content">
+                        👋 <strong>Hello! I'm your University Event Assistant.</strong><br><br>
+                        I can help you find events based on your interests. Try asking:<br><br>
+                        • 💻 <strong>"Technical events"</strong> - Coding, AI, workshops<br>
+                        • 💼 <strong>"Career events"</strong> - Jobs, internships, networking<br>
+                        • 🎭 <strong>"Cultural events"</strong> - Festivals, music, dance<br>
+                        • 🏀 <strong>"Sports events"</strong> - Tournaments, fitness<br>
+                        • 📅 <strong>"Upcoming events"</strong> - What's happening soon<br>
+                        • 🔥 <strong>"Trending events"</strong> - Most popular events<br>
+                        • ❓ <strong>"Help"</strong> - See all commands<br><br>
+                        What interests you? 🚀
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <div class="suggestions" id="suggestions">
-            <div class="suggestion-chip">💻 I love coding</div>
-            <div class="suggestion-chip">💼 Career opportunities</div>
-            <div class="suggestion-chip">🎭 Cultural events</div>
-            <div class="suggestion-chip">🏀 Sports events</div>
-            <div class="suggestion-chip">📅 Upcoming events</div>
-            <div class="suggestion-chip">🔥 Trending</div>
-        </div>
-        
-        <div class="chat-input">
-            <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
-            <button onclick="sendMessage()">Send</button>
+            
+            <div class="suggestions">
+                <div class="suggestion">💻 Technical events</div>
+                <div class="suggestion">💼 Career events</div>
+                <div class="suggestion">🎭 Cultural events</div>
+                <div class="suggestion">🏀 Sports events</div>
+                <div class="suggestion">📅 Upcoming events</div>
+                <div class="suggestion">🔥 Trending events</div>
+                <div class="suggestion">❓ Help</div>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+                <button onclick="sendMessage()">Send</button>
+            </div>
         </div>
     </div>
     
     <script>
-        let sessionId = localStorage.getItem('sessionId');
-        if (!sessionId) {
-            sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('sessionId', sessionId);
-        }
-        
         async function sendMessage() {
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             
             if (!message) return;
             
-            // Add user message to chat
             addMessage(message, 'user');
             input.value = '';
-            
-            // Show typing indicator
-            showTypingIndicator();
+            showTyping();
             
             try {
                 const response = await fetch('/api/chat', {
@@ -249,14 +289,11 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        message: message,
-                        session_id: sessionId
-                    })
+                    body: JSON.stringify({ message: message })
                 });
                 
                 const data = await response.json();
-                hideTypingIndicator();
+                hideTyping();
                 
                 if (data.success) {
                     addMessage(data.response, 'bot');
@@ -264,13 +301,13 @@
                     addMessage('Sorry, I encountered an error. Please try again.', 'bot');
                 }
             } catch (error) {
-                hideTypingIndicator();
+                hideTyping();
                 addMessage('Network error. Please check your connection.', 'bot');
             }
         }
         
         function addMessage(text, sender) {
-            const messagesDiv = document.getElementById('chatMessages');
+            const messagesDiv = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
             messageDiv.innerHTML = `<div class="message-content">${text.replace(/\n/g, '<br>')}</div>`;
@@ -278,28 +315,21 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         
-        function showTypingIndicator() {
-            const messagesDiv = document.getElementById('chatMessages');
-            const indicator = document.createElement('div');
-            indicator.className = 'message bot-message';
-            indicator.id = 'typingIndicator';
-            indicator.innerHTML = `
-                <div class="typing-indicator">
+        function showTyping() {
+            const messagesDiv = document.getElementById('messages');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message bot-message';
+            typingDiv.id = 'typingIndicator';
+            typingDiv.innerHTML = `
+                <div class="typing-indicator" style="display: block;">
                     <span></span><span></span><span></span>
                 </div>
             `;
-            messagesDiv.appendChild(indicator);
+            messagesDiv.appendChild(typingDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            
-            setTimeout(() => {
-                const typingDiv = document.querySelector('.typing-indicator');
-                if (typingDiv) {
-                    typingDiv.style.display = 'block';
-                }
-            }, 100);
         }
         
-        function hideTypingIndicator() {
+        function hideTyping() {
             const indicator = document.getElementById('typingIndicator');
             if (indicator) {
                 indicator.remove();
@@ -312,10 +342,9 @@
             }
         }
         
-        // Add suggestion chip click handlers
-        document.querySelectorAll('.suggestion-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-                document.getElementById('messageInput').value = chip.textContent;
+        document.querySelectorAll('.suggestion').forEach(suggestion => {
+            suggestion.addEventListener('click', () => {
+                document.getElementById('messageInput').value = suggestion.textContent;
                 sendMessage();
             });
         });
