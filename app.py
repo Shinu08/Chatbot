@@ -8,20 +8,18 @@ from mysql.connector import Error
 
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# ============= DATABASE CONFIGURATION =============
-# Add your database credentials here
+# ============= XAMPP DATABASE CONFIGURATION =============
 DB_CONFIG = {
-    'host': os.environ.get('DB_HOST', 'localhost'),
-    'database': os.environ.get('DB_NAME', 'evently_db'),
-    'user': os.environ.get('DB_USER', 'root'),
-    'password': os.environ.get('DB_PASSWORD', '123'),
-    'port': int(os.environ.get('DB_PORT', 3306))
+    'host': 'localhost',
+    'database': 'chatbot',
+    'user': 'root',
+    'password': '',
+    'port': 3307
 }
 
 def get_db_connection():
-    """Create database connection"""
     try:
         connection = mysql.connector.connect(**DB_CONFIG)
         return connection
@@ -30,7 +28,7 @@ def get_db_connection():
         return None
 
 def get_events_from_db(category=None, event_id=None):
-    """Fetch events from database"""
+    """Fetch events from database and format them to match original API structure"""
     connection = get_db_connection()
     if not connection:
         return [] if not event_id else None
@@ -46,29 +44,47 @@ def get_events_from_db(category=None, event_id=None):
                 WHERE e.id = %s AND e.status = 'approved'
             """
             cursor.execute(query, (event_id,))
-            return cursor.fetchone()
+            result = cursor.fetchone()
+            if result:
+                # Format database event to match original API structure
+                return format_event_for_api(result)
+            return None
         
         elif category:
+            # Map category names to your database categories
+            category_map = {
+                'technical': 'Technology',
+                'career': 'Careet & Learning',
+                'cultural': 'Entertainment',
+                'sports': 'Sports',
+                'academic': 'Arts & Creativity'
+            }
+            db_category = category_map.get(category, category)
+            
             query = """
-                SELECT e.*, ec.name as category_name 
+                SELECT e.*, ec.name as category_name,
+                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
                 FROM events e
                 JOIN event_categories ec ON e.event_category_id = ec.id
                 WHERE ec.name LIKE %s AND e.status = 'approved'
                 ORDER BY e.start_datetime ASC
             """
-            cursor.execute(query, (f'%{category}%',))
-            return cursor.fetchall()
+            cursor.execute(query, (f'%{db_category}%',))
+            results = cursor.fetchall()
+            return [format_event_for_api(event) for event in results]
         
         else:
             query = """
-                SELECT e.*, ec.name as category_name 
+                SELECT e.*, ec.name as category_name,
+                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
                 FROM events e
                 JOIN event_categories ec ON e.event_category_id = ec.id
                 WHERE e.status = 'approved'
                 ORDER BY e.start_datetime ASC
             """
             cursor.execute(query)
-            return cursor.fetchall()
+            results = cursor.fetchall()
+            return [format_event_for_api(event) for event in results]
             
     except Error as err:
         print(f"Database error: {err}")
@@ -77,6 +93,67 @@ def get_events_from_db(category=None, event_id=None):
         if connection.is_connected():
             cursor.close()
             connection.close()
+
+def format_event_for_api(db_event):
+    """Convert database event format to match original API event structure"""
+    # Format date from datetime to readable string
+    start_date = db_event['start_datetime']
+    if isinstance(start_date, datetime):
+        date_str = start_date.strftime("%B %d, %Y")
+        time_str = start_date.strftime("%I:%M %p")
+    else:
+        date_str = str(start_date) if start_date else "Date TBA"
+        time_str = "Time TBA"
+    
+    # Map category ID to category name
+    category_map = {
+        1: 'entertainment',
+        2: 'career',
+        3: 'arts',
+        4: 'wellness',
+        5: 'technology',
+        6: 'sports',
+        7: 'lifestyle'
+    }
+    
+    # Get category name from event_categories table or use mapping
+    if 'category_name' in db_event and db_event['category_name']:
+        category_lower = db_event['category_name'].lower()
+        if 'technology' in category_lower:
+            category = 'technical'
+        elif 'careet' in category_lower or 'learning' in category_lower:
+            category = 'career'
+        elif 'entertainment' in category_lower:
+            category = 'cultural'
+        elif 'sports' in category_lower:
+            category = 'sports'
+        elif 'arts' in category_lower:
+            category = 'academic'
+        else:
+            category = category_lower
+    else:
+        category = category_map.get(db_event.get('event_category_id', 1), 'technical')
+    
+    # Get registered count
+    registered = db_event.get('registered_count', 0)
+    
+    return {
+        "id": db_event['id'],
+        "name": db_event['title'],
+        "category": category,
+        "date": date_str,
+        "time": time_str,
+        "location": db_event['venue'],
+        "description": db_event['description'],
+        "capacity": db_event['max_participants'] if db_event['max_participants'] else 999,
+        "registered": registered,
+        "speaker": db_event.get('created_by', 'University Organizer'),
+        "tags": [db_event.get('category_name', 'Event'), db_event.get('mode', 'offline')],
+        "price": "Free" if db_event.get('mode') == 'offline' else "Check website",
+        "mode": db_event['mode'],
+        "meeting_link": db_event.get('meeting_link'),
+        "registration_deadline": db_event['registration_deadline'].strftime("%B %d, %Y") if db_event['registration_deadline'] else None
+    }
 
 def get_upcoming_events_from_db(days=30):
     """Get events happening in next N days"""
@@ -87,7 +164,8 @@ def get_upcoming_events_from_db(days=30):
     try:
         cursor = connection.cursor(dictionary=True)
         query = """
-            SELECT e.*, ec.name as category_name 
+            SELECT e.*, ec.name as category_name,
+                   (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
             FROM events e
             JOIN event_categories ec ON e.event_category_id = ec.id
             WHERE e.start_datetime BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL %s DAY)
@@ -95,7 +173,8 @@ def get_upcoming_events_from_db(days=30):
             ORDER BY e.start_datetime ASC
         """
         cursor.execute(query, (days,))
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        return [format_event_for_api(event) for event in results]
     except Error as err:
         print(f"Database error: {err}")
         return []
@@ -114,7 +193,8 @@ def get_trending_events_from_db(limit=5):
         cursor = connection.cursor(dictionary=True)
         query = """
             SELECT e.*, ec.name as category_name,
-                   COUNT(er.id) as registration_count
+                   COUNT(er.id) as registration_count,
+                   (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
             FROM events e
             JOIN event_categories ec ON e.event_category_id = ec.id
             LEFT JOIN event_registrations er ON e.id = er.event_id
@@ -124,7 +204,8 @@ def get_trending_events_from_db(limit=5):
             LIMIT %s
         """
         cursor.execute(query, (limit,))
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        return [format_event_for_api(event) for event in results]
     except Error as err:
         print(f"Database error: {err}")
         return []
@@ -144,7 +225,7 @@ def register_student_for_event_db(event_id, student_id):
         
         # Check if event exists and has capacity
         cursor.execute("""
-            SELECT max_participants, 
+            SELECT max_participants, title,
                    (SELECT COUNT(*) FROM event_registrations WHERE event_id = %s) as current_registrations
             FROM events WHERE id = %s AND status = 'approved'
         """, (event_id, event_id))
@@ -155,7 +236,7 @@ def register_student_for_event_db(event_id, student_id):
             return False, "Event not found"
         
         if event['max_participants'] and event['current_registrations'] >= event['max_participants']:
-            return False, "Event is full"
+            return False, f"Sorry, {event['title']} is full"
         
         # Check if already registered
         cursor.execute("""
@@ -178,7 +259,7 @@ def register_student_for_event_db(event_id, student_id):
         """, (event_id, student_id, reg_id))
         
         connection.commit()
-        return True, f"Successfully registered! Your Registration ID: {reg_id}"
+        return True, f"✅ Successfully registered for {event['title']}! Registration ID: {reg_id}"
         
     except Error as err:
         print(f"Database error: {err}")
@@ -215,15 +296,12 @@ def get_db_stats():
     try:
         cursor = connection.cursor(dictionary=True)
         
-        # Get total events
         cursor.execute("SELECT COUNT(*) as total FROM events WHERE status = 'approved'")
         total_events = cursor.fetchone()['total']
         
-        # Get total registrations
         cursor.execute("SELECT COUNT(*) as total FROM event_registrations")
         total_registrations = cursor.fetchone()['total']
         
-        # Get total capacity
         cursor.execute("SELECT SUM(max_participants) as total FROM events WHERE status = 'approved'")
         total_capacity = cursor.fetchone()['total'] or 0
         
@@ -241,164 +319,83 @@ def get_db_stats():
             cursor.close()
             connection.close()
 
-# ============= EVENT DATABASE (Fallback if no DB connection) =============
+# ============= FALLBACK EVENT DATABASE (in case database is not available) =============
 EVENTS = [
     {
         "id": 1,
-        "name": "AI & Machine Learning Workshop",
-        "category": "technical",
-        "date": "May 15, 2024",
-        "time": "2:00 PM - 5:00 PM",
-        "location": "Computer Science Building, Room 101",
-        "description": "Hands-on workshop covering neural networks, deep learning, and practical AI applications.",
-        "capacity": 50,
-        "registered": 32,
-        "speaker": "Dr. Sarah Johnson",
-        "tags": ["AI", "Machine Learning", "Python"],
-        "price": "Free"
+        "name": "Plantation Programme",
+        "category": "wellness",
+        "date": "March 31, 2026",
+        "time": "06:00 AM - 10:00 AM",
+        "location": "RPJ College",
+        "description": "Planting Trees in nearby areas",
+        "capacity": 250,
+        "registered": 0,
+        "speaker": "Admin",
+        "tags": ["Health", "Wellness", "Environment"],
+        "price": "Free",
+        "mode": "offline"
     },
     {
         "id": 2,
-        "name": "Annual Career Fair 2024",
+        "name": "Internship & Training Programme",
         "category": "career",
-        "date": "May 20, 2024",
-        "time": "10:00 AM - 4:00 PM",
-        "location": "Student Center Grand Ballroom",
-        "description": "Meet recruiters from Google, Microsoft, Amazon, and 50+ top companies.",
-        "capacity": 500,
-        "registered": 387,
-        "speaker": "Various Recruiters",
-        "tags": ["Career", "Jobs", "Networking"],
-        "price": "Free"
+        "date": "April 1, 2026",
+        "time": "12:00 PM",
+        "location": "RPJ College - Online Mode",
+        "description": "Internship & Training Opportunity to all the students",
+        "capacity": 150,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Career", "Internship", "Training"],
+        "price": "Free",
+        "mode": "online",
+        "meeting_link": "https://randomdailyurls.com/"
     },
     {
         "id": 3,
-        "name": "Spring Cultural Festival",
-        "category": "cultural",
-        "date": "May 25, 2024",
-        "time": "4:00 PM - 9:00 PM",
-        "location": "University Quad",
-        "description": "Celebrate diversity with international food, music performances, and dance shows.",
-        "capacity": 1000,
-        "registered": 723,
-        "speaker": "Cultural Groups",
-        "tags": ["Cultural", "Music", "Food"],
-        "price": "Free"
+        "name": "Sports Day Event",
+        "category": "sports",
+        "date": "April 15, 2026",
+        "time": "09:00 AM",
+        "location": "JK Sports Ground",
+        "description": "Sports Day Organized in JK University",
+        "capacity": 800,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Sports", "Tournament"],
+        "price": "Free",
+        "mode": "offline"
     },
     {
         "id": 4,
-        "name": "Inter-University Basketball Tournament",
-        "category": "sports",
-        "date": "May 18-19, 2024",
-        "time": "9:00 AM - 6:00 PM",
-        "location": "Sports Complex Arena",
-        "description": "Annual basketball tournament with 15 universities competing.",
-        "capacity": 800,
-        "registered": 542,
-        "speaker": "Professional Coaches",
-        "tags": ["Sports", "Basketball", "Tournament"],
-        "price": "$10 per day"
-    },
-    {
-        "id": 5,
-        "name": "Research Symposium 2024",
-        "category": "academic",
-        "date": "May 22, 2024",
-        "time": "9:00 AM - 5:00 PM",
-        "location": "Convention Center Hall A",
-        "description": "Showcase your research projects and attend keynote speeches.",
-        "capacity": 300,
-        "registered": 187,
-        "speaker": "Dr. Robert Chen",
-        "tags": ["Research", "Academic", "Symposium"],
-        "price": "Free"
-    },
-    {
-        "id": 6,
-        "name": "Python Programming Bootcamp",
-        "category": "technical",
-        "date": "May 17-19, 2024",
-        "time": "10:00 AM - 4:00 PM",
-        "location": "CS Building, Lab 304",
-        "description": "3-day intensive bootcamp covering Python basics to advanced concepts.",
-        "capacity": 40,
-        "registered": 38,
-        "speaker": "Prof. Alex Kumar",
-        "tags": ["Python", "Programming", "Bootcamp"],
-        "price": "$50"
-    },
-    {
-        "id": 7,
-        "name": "Networking Night with Alumni",
-        "category": "career",
-        "date": "May 23, 2024",
-        "time": "6:00 PM - 9:00 PM",
-        "location": "Alumni Center",
-        "description": "Connect with successful alumni working at top tech companies.",
-        "capacity": 150,
-        "registered": 112,
-        "speaker": "Alumni Panel",
-        "tags": ["Networking", "Career", "Alumni"],
-        "price": "Free"
-    },
-    {
-        "id": 8,
-        "name": "Diwali Celebration Night",
-        "category": "cultural",
-        "date": "May 19, 2024",
-        "time": "7:00 PM - 11:00 PM",
-        "location": "Student Union Ballroom",
-        "description": "Traditional Indian festival celebration with music, dance, and food.",
-        "capacity": 400,
-        "registered": 312,
-        "speaker": "Cultural Performers",
-        "tags": ["Cultural", "Diwali", "Festival"],
-        "price": "Free"
-    },
-    {
-        "id": 9,
-        "name": "Yoga & Wellness Retreat",
-        "category": "sports",
-        "date": "May 21, 2024",
-        "time": "8:00 AM - 12:00 PM",
-        "location": "Wellness Center",
-        "description": "Morning yoga session, meditation workshop, and wellness seminar.",
-        "capacity": 60,
-        "registered": 45,
-        "speaker": "Certified Yoga Instructor",
-        "tags": ["Yoga", "Wellness", "Mental Health"],
-        "price": "Free"
-    },
-    {
-        "id": 10,
-        "name": "Hackathon 2024",
-        "category": "technical",
-        "date": "May 24-26, 2024",
-        "time": "48-hour event",
-        "location": "Innovation Hub",
-        "description": "48-hour coding competition with $5000 in prizes.",
-        "capacity": 200,
-        "registered": 156,
-        "speaker": "Tech Mentors",
-        "tags": ["Hackathon", "Coding", "Innovation"],
-        "price": "Free"
+        "name": "Arts Festival 2026",
+        "category": "arts",
+        "date": "April 25, 2026",
+        "time": "03:00 PM - 04:30 PM",
+        "location": "Indus University, Auditorium Hall",
+        "description": "Arts Competition organized in our college",
+        "capacity": 90,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Arts", "Creativity", "Festival"],
+        "price": "Free",
+        "mode": "offline"
     }
 ]
 
-# User sessions storage (in-memory, replace with database in production)
 user_sessions = {}
 
-# Interest keywords mapping
 INTEREST_MAP = {
-    "technical": ["coding", "programming", "ai", "machine learning", "hackathon", "python", "tech", "software", "developer", "computer", "data science"],
-    "career": ["job", "internship", "career", "placement", "recruitment", "company", "interview", "resume", "networking", "salary", "employment"],
-    "cultural": ["cultural", "festival", "music", "dance", "art", "performance", "celebration", "traditional", "food", "concert", "show"],
+    "technical": ["coding", "programming", "ai", "machine learning", "hackathon", "python", "tech", "software", "developer", "computer", "data science", "technology"],
+    "career": ["job", "internship", "career", "placement", "recruitment", "company", "interview", "resume", "networking", "salary", "employment", "training"],
+    "cultural": ["cultural", "festival", "music", "dance", "art", "performance", "celebration", "traditional", "food", "concert", "show", "entertainment"],
     "sports": ["sports", "basketball", "tournament", "fitness", "yoga", "game", "athletics", "competition", "wellness", "exercise", "workout"],
-    "academic": ["research", "symposium", "academic", "study", "paper", "conference", "seminar", "workshop", "presentation", "thesis"]
+    "academic": ["research", "symposium", "academic", "study", "paper", "conference", "seminar", "workshop", "presentation", "thesis"],
+    "wellness": ["health", "wellness", "plantation", "environment", "green", "nature"]
 }
 
 def detect_interest(message):
-    """Detect user interest from message"""
     message_lower = message.lower()
     scores = {}
     
@@ -412,459 +409,223 @@ def detect_interest(message):
     return None
 
 def generate_response(message, user_id=None):
-    """Generate response based on message"""
     msg_lower = message.lower()
     
-    # Help command
     if any(word in msg_lower for word in ["help", "commands", "what can you do"]):
         return {
             "response": "Available Commands:\n\n"
                        "📌 Find Events:\n"
-                       "• 'Show technical events' - Coding, AI, workshops\n"
-                       "• 'Show career events' - Jobs, internships\n"
-                       "• 'Show cultural events' - Festivals, music\n"
-                       "• 'Show sports events' - Tournaments, fitness\n"
-                       "• 'Show academic events' - Research, symposiums\n\n"
+                       "• 'Show technical events' - Technology events\n"
+                       "• 'Show career events' - Internships, training\n"
+                       "• 'Show sports events' - Sports tournaments\n"
+                       "• 'Show wellness events' - Health, plantation\n"
+                       "• 'Show arts events' - Cultural, arts festival\n\n"
                        "🔍 Browse:\n"
                        "• 'Upcoming events' - Events happening soon\n"
                        "• 'Trending events' - Most popular events\n"
                        "• 'All events' - List all events\n\n"
                        "📝 Register:\n"
-                       "• 'Register for event 5' - Register for specific event\n\n"
+                       "• 'Register for event 1' - Register for specific event\n\n"
                        "ℹ️ Details:\n"
-                       "• 'Tell me about AI workshop' - Get event details",
+                       "• 'Tell me about Plantation Programme' - Get event details",
             "intent": "help"
         }
     
-    # Register for event
     if "register" in msg_lower:
         numbers = re.findall(r'\d+', message)
         if numbers:
             event_id = int(numbers[0])
-            # Try database registration first
-            student_id = 1  # Replace with actual student ID from session
+            student_id = 1
             success, result = register_student_for_event_db(event_id, student_id)
             
             if success:
-                return {
-                    "response": result,
-                    "intent": "registration"
-                }
+                return {"response": result, "intent": "registration"}
             else:
-                # Fallback to in-memory registration
                 event = next((e for e in EVENTS if e['id'] == event_id), None)
                 if event:
                     if event['registered'] < event['capacity']:
                         event['registered'] += 1
-                        return {
-                            "response": f"✅ Successfully registered for {event['name']}!",
-                            "event": event,
-                            "intent": "registration"
-                        }
+                        return {"response": f"✅ Successfully registered for {event['name']}!", "event": event, "intent": "registration"}
                     else:
-                        return {
-                            "response": f"❌ Sorry, {event['name']} is full!",
-                            "intent": "registration_failed"
-                        }
+                        return {"response": f"❌ Sorry, {event['name']} is full!", "intent": "registration_failed"}
                 else:
-                    return {
-                        "response": f"❌ Event with ID {event_id} not found. Available IDs: {', '.join([str(e['id']) for e in EVENTS])}",
-                        "intent": "registration_failed"
-                    }
+                    return {"response": f"❌ Event with ID {event_id} not found.", "intent": "registration_failed"}
         else:
-            return {
-                "response": "Please specify event ID. Example: 'Register for event 5'",
-                "intent": "registration_help"
-            }
+            return {"response": "Please specify event ID. Example: 'Register for event 1'", "intent": "registration_help"}
     
-    # Get specific event details - Try database first
+    # Try database first for event details
     db_events = get_events_from_db()
     if db_events:
         for event in db_events:
-            if event.get('title', '').lower() in msg_lower:
-                return {
-                    "response": event,
-                    "intent": "event_details"
-                }
+            if event.get('name', '').lower() in msg_lower:
+                return {"response": event, "intent": "event_details"}
     else:
-        # Fallback to in-memory events
         for event in EVENTS:
             if event['name'].lower() in msg_lower:
-                return {
-                    "response": event,
-                    "intent": "event_details"
-                }
+                return {"response": event, "intent": "event_details"}
     
-    # Upcoming events - Try database first
     if any(word in msg_lower for word in ["upcoming", "this week", "soon"]):
         db_upcoming = get_upcoming_events_from_db(30)
         if db_upcoming:
-            return {
-                "response": db_upcoming,
-                "intent": "upcoming_events",
-                "count": len(db_upcoming)
-            }
+            return {"response": db_upcoming, "intent": "upcoming_events", "count": len(db_upcoming)}
         else:
-            upcoming = EVENTS[:5]
-            return {
-                "response": upcoming,
-                "intent": "upcoming_events",
-                "count": len(upcoming)
-            }
+            return {"response": EVENTS[:5], "intent": "upcoming_events", "count": len(EVENTS[:5])}
     
-    # Trending events - Try database first
     if any(word in msg_lower for word in ["trending", "popular", "hot"]):
         db_trending = get_trending_events_from_db(3)
         if db_trending:
-            return {
-                "response": db_trending,
-                "intent": "trending_events"
-            }
+            return {"response": db_trending, "intent": "trending_events"}
         else:
             trending = sorted(EVENTS, key=lambda x: x['registered']/x['capacity'], reverse=True)[:3]
-            return {
-                "response": trending,
-                "intent": "trending_events"
-            }
+            return {"response": trending, "intent": "trending_events"}
     
-    # All events - Try database first
     if "all events" in msg_lower or "list all" in msg_lower:
         db_all = get_events_from_db()
         if db_all:
-            return {
-                "response": db_all,
-                "intent": "all_events",
-                "count": len(db_all)
-            }
+            return {"response": db_all, "intent": "all_events", "count": len(db_all)}
         else:
-            return {
-                "response": EVENTS,
-                "intent": "all_events",
-                "count": len(EVENTS)
-            }
+            return {"response": EVENTS, "intent": "all_events", "count": len(EVENTS)}
     
-    # Category-based queries - Try database first
     categories = {
-        "technical": ["technical", "coding", "programming", "ai", "hackathon"],
-        "career": ["career", "job", "internship", "placement"],
-        "cultural": ["cultural", "festival", "music", "dance", "art"],
-        "sports": ["sports", "basketball", "tournament", "fitness", "yoga"],
-        "academic": ["academic", "research", "symposium", "study"]
+        "technical": ["technical", "coding", "programming", "ai", "hackathon", "technology"],
+        "career": ["career", "job", "internship", "placement", "training"],
+        "sports": ["sports", "basketball", "tournament", "fitness", "yoga", "game"],
+        "wellness": ["wellness", "health", "plantation", "environment", "nature"],
+        "arts": ["arts", "cultural", "festival", "music", "dance", "entertainment"]
     }
     
     for category, keywords in categories.items():
         if any(keyword in msg_lower for keyword in keywords):
             db_filtered = get_events_from_db(category=category)
             if db_filtered:
-                return {
-                    "response": db_filtered,
-                    "intent": f"{category}_events",
-                    "category": category,
-                    "count": len(db_filtered)
-                }
+                return {"response": db_filtered, "intent": f"{category}_events", "category": category, "count": len(db_filtered)}
             else:
                 filtered = [e for e in EVENTS if e['category'] == category]
-                return {
-                    "response": filtered,
-                    "intent": f"{category}_events",
-                    "category": category,
-                    "count": len(filtered)
-                }
+                return {"response": filtered, "intent": f"{category}_events", "category": category, "count": len(filtered)}
     
-    # Interest-based detection
     interest = detect_interest(message)
     if interest:
         db_interest = get_events_from_db(category=interest)
         if db_interest:
-            return {
-                "response": db_interest,
-                "intent": "recommended_events",
-                "interest": interest,
-                "count": len(db_interest)
-            }
+            return {"response": db_interest, "intent": "recommended_events", "interest": interest, "count": len(db_interest)}
         else:
             filtered = [e for e in EVENTS if e['category'] == interest]
             if filtered:
-                return {
-                    "response": filtered,
-                    "intent": "recommended_events",
-                    "interest": interest,
-                    "count": len(filtered)
-                }
+                return {"response": filtered, "intent": "recommended_events", "interest": interest, "count": len(filtered)}
     
-    # Default greeting
     if any(word in msg_lower for word in ["hello", "hi", "hey"]):
-        return {
-            "response": "Hello! I'm your University Event Assistant. Type 'help' to see what I can do!",
-            "intent": "greeting"
-        }
+        return {"response": "Hello! I'm your University Event Assistant. Type 'help' to see what I can do!", "intent": "greeting"}
     
-    # Default response
-    return {
-        "response": "I'm not sure about that. Type 'help' to see all commands or tell me what events you're interested in!",
-        "intent": "unknown"
-    }
+    return {"response": "I'm not sure about that. Type 'help' to see all commands or tell me what events you're interested in!", "intent": "unknown"}
 
 # ============= API ENDPOINTS =============
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Main chat endpoint"""
     try:
         data = request.get_json()
         if not data:
-            return jsonify({
-                'success': False,
-                'error': 'No JSON data provided'
-            }), 400
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
         
         message = data.get('message', '').strip()
         user_id = data.get('user_id', None)
         
         if not message:
-            return jsonify({
-                'success': False,
-                'error': 'Message is required'
-            }), 400
+            return jsonify({'success': False, 'error': 'Message is required'}), 400
         
-        # Generate response
         result = generate_response(message, user_id)
-        
-        return jsonify({
-            'success': True,
-            'message': message,
-            **result
-        })
-    
+        return jsonify({'success': True, 'message': message, **result})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events', methods=['GET'])
 def get_events():
-    """Get events with filters"""
     try:
         category = request.args.get('category')
         event_id = request.args.get('id')
         
         if event_id:
-            # Try database first
             db_event = get_events_from_db(event_id=int(event_id))
             if db_event:
-                return jsonify({
-                    'success': True,
-                    'event': db_event
-                })
-            
-            # Fallback to in-memory
+                return jsonify({'success': True, 'event': db_event})
             event = next((e for e in EVENTS if e['id'] == int(event_id)), None)
             if event:
-                return jsonify({
-                    'success': True,
-                    'event': event
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': 'Event not found'
-                }), 404
+                return jsonify({'success': True, 'event': event})
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
         
         if category:
-            # Try database first
             db_filtered = get_events_from_db(category=category)
             if db_filtered:
-                return jsonify({
-                    'success': True,
-                    'events': db_filtered,
-                    'count': len(db_filtered),
-                    'category': category,
-                    'source': 'database'
-                })
-            
-            # Fallback to in-memory
+                return jsonify({'success': True, 'events': db_filtered, 'count': len(db_filtered), 'category': category})
             filtered = [e for e in EVENTS if e['category'].lower() == category.lower()]
-            return jsonify({
-                'success': True,
-                'events': filtered,
-                'count': len(filtered),
-                'category': category,
-                'source': 'memory'
-            })
+            return jsonify({'success': True, 'events': filtered, 'count': len(filtered), 'category': category})
         
-        # Try database first for all events
         db_events = get_events_from_db()
         if db_events:
-            return jsonify({
-                'success': True,
-                'events': db_events,
-                'count': len(db_events),
-                'source': 'database'
-            })
-        
-        # Return all events from memory
-        return jsonify({
-            'success': True,
-            'events': EVENTS,
-            'count': len(EVENTS),
-            'source': 'memory'
-        })
-    
+            return jsonify({'success': True, 'events': db_events, 'count': len(db_events)})
+        return jsonify({'success': True, 'events': EVENTS, 'count': len(EVENTS)})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events/<int:event_id>', methods=['GET'])
 def get_event_by_id(event_id):
-    """Get single event by ID"""
     try:
-        # Try database first
         db_event = get_events_from_db(event_id=event_id)
         if db_event:
-            return jsonify({
-                'success': True,
-                'event': db_event,
-                'source': 'database'
-            })
-        
-        # Fallback to in-memory
+            return jsonify({'success': True, 'event': db_event})
         event = next((e for e in EVENTS if e['id'] == event_id), None)
         if event:
-            return jsonify({
-                'success': True,
-                'event': event,
-                'source': 'memory'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Event not found'
-            }), 404
+            return jsonify({'success': True, 'event': event})
+        return jsonify({'success': False, 'error': 'Event not found'}), 404
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events/<int:event_id>/register', methods=['POST'])
 def register_for_event(event_id):
-    """Register for an event"""
     try:
         data = request.get_json()
-        user_id = data.get('user_id') if data else None
-        student_id = data.get('student_id', 1)  # Default to 1 for testing
+        student_id = data.get('student_id', 1) if data else 1
         
-        # Try database registration first
         success, message = register_student_for_event_db(event_id, student_id)
-        
         if success:
-            return jsonify({
-                'success': True,
-                'message': message,
-                'source': 'database'
-            })
+            return jsonify({'success': True, 'message': message})
         
-        # Fallback to in-memory registration
         event = next((e for e in EVENTS if e['id'] == event_id), None)
-        
         if not event:
-            return jsonify({
-                'success': False,
-                'error': 'Event not found'
-            }), 404
-        
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
         if event['registered'] >= event['capacity']:
-            return jsonify({
-                'success': False,
-                'error': f'Sorry, {event["name"]} is full',
-                'event': event
-            }), 400
+            return jsonify({'success': False, 'error': f'Sorry, {event["name"]} is full'}), 400
         
-        # Register user
         event['registered'] += 1
-        
-        return jsonify({
-            'success': True,
-            'message': f'Successfully registered for {event["name"]}',
-            'event': event,
-            'user_id': user_id,
-            'source': 'memory'
-        })
-    
+        return jsonify({'success': True, 'message': f'Successfully registered for {event["name"]}', 'event': event})
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
-    """Get all event categories"""
-    # Try database first
     db_categories = get_event_categories_from_db()
     if db_categories:
-        return jsonify({
-            'success': True,
-            'categories': [c['name'] for c in db_categories],
-            'source': 'database'
-        })
-    
-    # Fallback to in-memory
+        return jsonify({'success': True, 'categories': [c['name'] for c in db_categories]})
     categories = list(set([e['category'] for e in EVENTS]))
-    return jsonify({
-        'success': True,
-        'categories': categories,
-        'source': 'memory'
-    })
+    return jsonify({'success': True, 'categories': categories})
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get API statistics"""
-    # Try database first
     db_stats = get_db_stats()
     if db_stats:
-        return jsonify({
-            'success': True,
-            'stats': db_stats,
-            'source': 'database'
-        })
-    
-    # Fallback to in-memory
+        return jsonify({'success': True, 'stats': db_stats})
     total_events = len(EVENTS)
     total_registrations = sum(e['registered'] for e in EVENTS)
     total_capacity = sum(e['capacity'] for e in EVENTS)
-    
-    return jsonify({
-        'success': True,
-        'stats': {
-            'total_events': total_events,
-            'total_registrations': total_registrations,
-            'total_capacity': total_capacity,
-            'average_fill_rate': round((total_registrations / total_capacity) * 100, 2)
-        },
-        'source': 'memory'
-    })
+    return jsonify({'success': True, 'stats': {'total_events': total_events, 'total_registrations': total_registrations, 'total_capacity': total_capacity, 'average_fill_rate': round((total_registrations / total_capacity) * 100, 2)}})
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
-    # Check database connection
     db_status = "connected" if get_db_connection() else "disconnected"
-    
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'events_count': len(EVENTS),
-        'version': '1.0.0',
-        'database': db_status
-    })
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat(), 'events_count': len(EVENTS), 'version': '1.0.0', 'database': db_status})
 
 @app.route('/', methods=['GET'])
 def root():
-    """Root endpoint with API info"""
     return jsonify({
         'name': 'University Event Chatbot API',
         'version': '1.0.0',
@@ -878,23 +639,16 @@ def root():
             'GET /api/categories': 'Get all event categories',
             'GET /api/stats': 'Get API statistics',
             'GET /health': 'Health check'
-        },
-        'documentation': 'https://github.com/your-username/university-chatbot-backend'
+        }
     })
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({
-        'success': False,
-        'error': 'Endpoint not found'
-    }), 404
+    return jsonify({'success': False, 'error': 'Endpoint not found'}), 404
 
 @app.errorhandler(500)
 def internal_error(e):
-    return jsonify({
-        'success': False,
-        'error': 'Internal server error'
-    }), 500
+    return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
