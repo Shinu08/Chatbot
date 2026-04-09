@@ -665,14 +665,14 @@ def root():
 def debug_env():
     """Debug endpoint to check environment variables (remove in production)"""
     return jsonify({
-        'DB_HOST': os.environ.get('DB_HOST', 'Not set'),
-        'DB_NAME': os.environ.get('DB_NAME', 'Not set'),
-        'DB_USER': os.environ.get('DB_USER', 'Not set'),
-        'DB_PORT': os.environ.get('DB_PORT', 'Not set'),
-        'MYSQLHOST': os.environ.get('MYSQLHOST', 'Not set'),
-        'MYSQLDATABASE': os.environ.get('MYSQLDATABASE', 'Not set'),
-        'MYSQLUSER': os.environ.get('MYSQLUSER', 'Not set'),
-        'MYSQLPORT': os.environ.get('MYSQLPORT', 'Not set'),
+        'DB_HOST': os.environ.get('DB_HOST', 'mysql.railway.internal'),
+        'DB_NAME': os.environ.get('DB_NAME', 'evently_db'),
+        'DB_USER': os.environ.get('DB_USER', 'root'),
+        'DB_PORT': os.environ.get('DB_PORT', '3306'),
+        'MYSQLHOST': os.environ.get('MYSQLHOST', 'mysql.railway.internal'),
+        'MYSQLDATABASE': os.environ.get('MYSQLDATABASE', 'railway'),
+        'MYSQLUSER': os.environ.get('MYSQLUSER', 'root'),
+        'MYSQLPORT': os.environ.get('MYSQLPORT', '3306'),
         'database_configured': all([DB_CONFIG['host'] != 'localhost', DB_CONFIG['user'] != 'root'])
     })
 
