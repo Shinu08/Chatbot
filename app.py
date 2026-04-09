@@ -14,10 +14,10 @@ CORS(app)
 # Railway automatically injects these environment variables
 # For local testing, you can set them manually or use a .env file
 DB_CONFIG = {
-    'host': os.environ.get('DB_HOST', os.environ.get('MYSQLHOST', 'localhost')),
-    'database': os.environ.get('DB_NAME', os.environ.get('MYSQLDATABASE', 'chatbot')),
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQLHOST', 'mysql.railway.internal')),
+    'database': os.environ.get('DB_NAME', os.environ.get('MYSQLDATABASE', 'railway')),
     'user': os.environ.get('DB_USER', os.environ.get('MYSQLUSER', 'root')),
-    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQLPASSWORD', '')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQLPASSWORD', 'rCcksrvhZVAYgbmXLQujAFYEjSSrXziw')),
     'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQLPORT', 3306)))
 }
 
