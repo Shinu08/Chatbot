@@ -10,18 +10,36 @@ app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 CORS(app)
 
-# ============= XAMPP DATABASE CONFIGURATION =============
+# ============= RAILWAY DATABASE CONFIGURATION =============
+# Railway automatically injects these environment variables
+# For local testing, you can set them manually or use a .env file
 DB_CONFIG = {
-    'host': 'localhost',
-    'database': 'chatbot',
-    'user': 'root',
-    'password': '',
-    'port': 3307
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQLHOST', 'localhost')),
+    'database': os.environ.get('DB_NAME', os.environ.get('MYSQLDATABASE', 'chatbot')),
+    'user': os.environ.get('DB_USER', os.environ.get('MYSQLUSER', 'root')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQLPASSWORD', '')),
+    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQLPORT', 3306)))
 }
 
 def get_db_connection():
+    """Create database connection for Railway"""
     try:
-        connection = mysql.connector.connect(**DB_CONFIG)
+        # Print debug info (remove in production)
+        print(f"Connecting to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
+        print(f"Database: {DB_CONFIG['database']}")
+        print(f"User: {DB_CONFIG['user']}")
+        
+        connection = mysql.connector.connect(
+            host=DB_CONFIG['host'],
+            database=DB_CONFIG['database'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password'],
+            port=DB_CONFIG['port'],
+            connect_timeout=10,
+            use_pure=True
+        )
+        if connection.is_connected():
+            print("✅ Connected to Railway MySQL database")
         return connection
     except Error as e:
         print(f"Database connection error: {e}")
@@ -31,6 +49,7 @@ def get_events_from_db(category=None, event_id=None):
     """Fetch events from database and format them to match original API structure"""
     connection = get_db_connection()
     if not connection:
+        print("No database connection, using fallback data")
         return [] if not event_id else None
     
     try:
@@ -640,6 +659,21 @@ def root():
             'GET /api/stats': 'Get API statistics',
             'GET /health': 'Health check'
         }
+    })
+
+@app.route('/debug/env', methods=['GET'])
+def debug_env():
+    """Debug endpoint to check environment variables (remove in production)"""
+    return jsonify({
+        'DB_HOST': os.environ.get('DB_HOST', 'Not set'),
+        'DB_NAME': os.environ.get('DB_NAME', 'Not set'),
+        'DB_USER': os.environ.get('DB_USER', 'Not set'),
+        'DB_PORT': os.environ.get('DB_PORT', 'Not set'),
+        'MYSQLHOST': os.environ.get('MYSQLHOST', 'Not set'),
+        'MYSQLDATABASE': os.environ.get('MYSQLDATABASE', 'Not set'),
+        'MYSQLUSER': os.environ.get('MYSQLUSER', 'Not set'),
+        'MYSQLPORT': os.environ.get('MYSQLPORT', 'Not set'),
+        'database_configured': all([DB_CONFIG['host'] != 'localhost', DB_CONFIG['user'] != 'root'])
     })
 
 @app.errorhandler(404)
