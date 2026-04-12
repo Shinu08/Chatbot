@@ -472,6 +472,72 @@ def get_events():
         logger.error(f"Error in get_events: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/test-connection', methods=['GET'])
+def test_connection():
+    """Test database connection with detailed output"""
+    results = {
+        'config': {
+            'host': DB_CONFIG['host'],
+            'port': DB_CONFIG['port'],
+            'database': DB_CONFIG['database'],
+            'user': DB_CONFIG['user'],
+            'has_password': bool(DB_CONFIG['password'])
+        },
+        'tests': {}
+    }
+    
+    # Test 1: DNS Resolution
+    import socket
+    try:
+        ip = socket.gethostbyname(DB_CONFIG['host'])
+        results['tests']['dns_resolution'] = f"SUCCESS - Resolved to {ip}"
+    except Exception as e:
+        results['tests']['dns_resolution'] = f"FAILED - {str(e)}"
+    
+    # Test 2: Port Connectivity
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        result = sock.connect_ex((DB_CONFIG['host'], DB_CONFIG['port']))
+        sock.close()
+        if result == 0:
+            results['tests']['port_connectivity'] = "SUCCESS - Port is open"
+        else:
+            results['tests']['port_connectivity'] = f"FAILED - Error code: {result}"
+    except Exception as e:
+        results['tests']['port_connectivity'] = f"FAILED - {str(e)}"
+    
+    # Test 3: MySQL Connection
+    try:
+        connection = pymysql.connect(
+            host=DB_CONFIG['host'],
+            port=DB_CONFIG['port'],
+            user=DB_CONFIG['user'],
+            password=DB_CONFIG['password'],
+            database=DB_CONFIG['database'],
+            connect_timeout=30
+        )
+        results['tests']['mysql_connection'] = "SUCCESS"
+        
+        # Test 4: Query Execution
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT VERSION()")
+            version = cursor.fetchone()
+            results['tests']['mysql_version'] = f"SUCCESS - Version: {version}"
+            
+            cursor.execute("SHOW DATABASES")
+            databases = [db['Database'] for db in cursor.fetchall()]
+            results['tests']['available_databases'] = databases
+            results['tests']['target_db_exists'] = DB_CONFIG['database'] in databases
+        
+        connection.close()
+        
+    except Exception as e:
+        results['tests']['mysql_connection'] = f"FAILED - {str(e)}"
+    
+    return jsonify(results)
+
 @app.route('/debug/env', methods=['GET'])
 def debug_env():
     return jsonify({
