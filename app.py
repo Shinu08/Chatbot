@@ -265,6 +265,16 @@ def get_events():
         logger.error(f"Error in get_events: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/debug/env', methods=['GET'])
+def debug_env():
+    return jsonify({
+        'DB_HOST': os.environ.get('DB_HOST'),
+        'DB_PORT': os.environ.get('DB_PORT'),
+        'DB_USER': os.environ.get('DB_USER'),
+        'DB_PASSWORD': '***' + os.environ.get('DB_PASSWORD', '')[-4:] if os.environ.get('DB_PASSWORD') else None,
+        'DB_NAME': os.environ.get('DB_NAME')
+    })
+    
 @app.route('/api/events/<int:event_id>', methods=['GET'])
 def get_event_by_id(event_id):
     """Get single event by ID"""
