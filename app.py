@@ -6,52 +6,43 @@ from datetime import datetime
 import mysql.connector
 from mysql.connector import Error
 import logging
-from dotenv import load_dotenv
-load_dotenv()
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import os
+from flask import Flask, jsonify
+from flask_cors import CORS
+import pymysql
+from pymysql import Error
 
 app = Flask(__name__)
-app.config['JSON_SORT_KEYS'] = False
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# ============= DATABASE CONFIGURATION =============
-# These will be set as Environment Variables in Render
+# Database configuration
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'metro.proxy.rlwy.net'),
-    'database': os.environ.get('DB_NAME', 'railway'),
+    'database': os.environ.get('DB_NAME', 'evently_db'),
     'user': os.environ.get('DB_USER', 'root'),
     'password': os.environ.get('DB_PASSWORD', 'rCcksrvhZVAYgbmXLQujAFYEjSSrXziw'),
-    'port': int(os.environ.get('DB_PORT', 13782 ))
+    'port': int(os.environ.get('DB_PORT', 13782))
 }
 
 def get_db_connection():
-    """Create database connection for Railway MySQL from Render"""
     try:
-        if not DB_CONFIG['host'] or not DB_CONFIG['user'] or not DB_CONFIG['password']:
-            print("Database configuration incomplete")
-            return None
-            
-        connection = mysql.connector.connect(
+        connection = pymysql.connect(
             host=DB_CONFIG['host'],
-            database=DB_CONFIG['database'],
+            port=DB_CONFIG['port'],
             user=DB_CONFIG['user'],
             password=DB_CONFIG['password'],
-            port=DB_CONFIG['port'],
+            database=DB_CONFIG['database'],
             connect_timeout=30,
-            use_pure=True,
-            ssl_disabled=True  # Required for Railway's public proxy
+            cursorclass=pymysql.cursors.DictCursor
         )
-        
-        if connection.is_connected():
-            print("✅ Connected to Railway MySQL database")
         return connection
-        
     except Error as e:
-        print(f"Database connection error: {e}")
+        print(f"Connection error: {e}")
         return None
+
+
+
+
 # ============= EVENT FUNCTIONS =============
 def get_events_from_db(category=None, event_id=None):
     """Fetch events from Railway MySQL database"""
