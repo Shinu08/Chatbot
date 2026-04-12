@@ -389,7 +389,21 @@ def create_event():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    """Show API status and data source"""
+    connection = get_db_connection()
+    db_available = connection is not None
+    if connection:
+        connection.close()
+    
+    return jsonify({
+        'database_connected': db_available,
+        'data_source': 'database' if db_available else 'fallback (local events)',
+        'events_available': len(FALLBACK_EVENTS),
+        'categories_available': len(FALLBACK_CATEGORIES)
+    })
+    
 @app.route('/api/admin/categories', methods=['GET'])
 def list_categories():
     """List all categories (for reference)"""
