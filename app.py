@@ -21,7 +21,7 @@ CORS(app)  # Enable CORS for all routes
 # These will be set as Environment Variables in Render
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'metro.proxy.rlwy.net'),
-    'database': os.environ.get('DB_NAME', 'evently_db'),
+    'database': os.environ.get('DB_NAME', 'railway'),
     'user': os.environ.get('DB_USER', 'root'),
     'password': os.environ.get('DB_PASSWORD', 'rCcksrvhZVAYgbmXLQujAFYEjSSrXziw'),
     'port': int(os.environ.get('DB_PORT', 13782 ))
