@@ -207,6 +207,224 @@ def register_student_for_event_db(event_id, student_id):
 
 # ============= API ENDPOINTS =============
 
+# ============= ADMIN API ENDPOINTS FOR MANUAL DATA ENTRY =============
+
+@app.route('/api/admin/categories/create', methods=['POST'])
+def create_category():
+    """Manually create an event category"""
+    try:
+        data = request.get_json()
+        
+        # Required fields
+        name = data.get('name')
+        slug = data.get('slug')
+        
+        if not name or not slug:
+            return jsonify({'success': False, 'error': 'Name and slug are required'}), 400
+        
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Insert category
+        cursor.execute("""
+            INSERT INTO event_categories (name, slug, is_active, created_at, updated_at)
+            VALUES (%s, %s, 1, NOW(), NOW())
+        """, (name, slug))
+        
+        connection.commit()
+        category_id = cursor.lastrowid
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Category "{name}" created successfully',
+            'category_id': category_id
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/events/create', methods=['POST'])
+def create_event():
+    """Manually create an event"""
+    try:
+        data = request.get_json()
+        
+        # Required fields
+        required_fields = ['title', 'description', 'event_category_id', 'start_datetime', 
+                          'end_datetime', 'venue', 'mode']
+        
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'success': False, 'error': f'Missing required field: {field}'}), 400
+        
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # Generate slug from title
+        slug = data['title'].lower().replace(' ', '-').replace('&', 'and').replace(',', '').replace('.', '')
+        
+        # Insert event
+        cursor.execute("""
+            INSERT INTO events (
+                title, slug, description, event_category_id, created_by, organizer_type, 
+                organizer_id, start_datetime, end_datetime, venue, mode, meeting_link, 
+                max_participants, registration_deadline, banner_image, is_featured, 
+                visibility, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+        """, (
+            data['title'],
+            slug,
+            data['description'],
+            data['event_category_id'],
+            data.get('created_by', 'admin'),
+            data.get('organizer_type', 'admin'),
+            data.get('organizer_id', 1),
+            data['start_datetime'],
+            data['end_datetime'],
+            data['venue'],
+            data['mode'],
+            data.get('meeting_link'),
+            data.get('max_participants'),
+            data.get('registration_deadline'),
+            data.get('banner_image'),
+            data.get('is_featured', 0),
+            data.get('visibility', 'public'),
+            'approved'  # Auto-approve for manual entries
+        ))
+        
+        connection.commit()
+        event_id = cursor.lastrowid
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Event "{data["title"]}" created successfully',
+            'event_id': event_id,
+            'slug': slug
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/categories', methods=['GET'])
+def list_categories():
+    """List all categories (for reference)"""
+    connection = get_db_connection()
+    if not connection:
+        return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+    
+    try:
+        cursor = connection.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT id, name, slug, is_active FROM event_categories ORDER BY id")
+        categories = cursor.fetchall()
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'categories': categories
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/seed-events', methods=['POST'])
+def seed_default_events():
+    """Seed the database with default events from your SQL file"""
+    try:
+        connection = get_db_connection()
+        if not connection:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        
+        cursor = connection.cursor()
+        
+        # First, check if categories exist, if not, create them
+        cursor.execute("SELECT COUNT(*) as count FROM event_categories")
+        result = cursor.fetchone()
+        
+        if result[0] == 0:
+            # Insert default categories
+            default_categories = [
+                (1, 'Entertainment', 'entertainment', 1),
+                (2, 'Career & Learning', 'career-learning', 1),
+                (3, 'Arts & Creativity', 'arts-creativity', 1),
+                (4, 'Health & Wellness', 'health-wellness', 1),
+                (5, 'Technology', 'technology', 1),
+                (6, 'Sports', 'sports', 1),
+                (7, 'Travel & Lifestyle', 'travel-lifestyle', 1)
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO event_categories (id, name, slug, is_active, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, NOW(), NOW())
+            """, default_categories)
+            print("✅ Default categories inserted")
+        
+        # Insert default events
+        default_events = [
+            (1, 'Plantation Programme', 'plantation-programme', 'Planting Trees in nearby areas', 4, 
+             'admin', 'admin', 1, '2026-03-31 06:00:00', '2026-03-31 10:00:00', 
+             'RPJ College', 'offline', None, 250, '2026-03-30 18:50:00', 
+             'event_banners/KxLelilbP9fzaQ0AGIgDmhHwDY9sPe9wOE1cb3ue.webp', 1, 'public', 'approved'),
+            
+            (2, 'Internship & Training Programme', 'internship-training-progrmme', 
+             'Internship & Training Opportunity to all the students', 2, 
+             'admin', 'admin', 1, '2026-04-01 12:00:00', '2026-06-30 02:00:00', 
+             'RPJ College - Online Mode', 'online', 'https://randomdailyurls.com/', 150, 
+             '2026-03-31 06:00:00', 'event_banners/6lCpka2YLLoosWOUTl3s5gd1K5TpnYzx6Mc5l0AO.jpg', 
+             1, 'public', 'approved'),
+            
+            (3, 'Sports Day Event', 'sports-day-event', 'Sports Day Organized in JK University', 6,
+             'admin', 'admin', 1, '2026-04-15 09:00:00', '2026-04-15 03:00:00',
+             'JK Sports Ground', 'offline', None, 800, '2026-04-01 06:00:00',
+             'event_banners/Qs7BHFzYidUwlgD0mydfsxUpox5qCk1XkZ5kdg4z.jpg', 1, 'public', 'approved'),
+            
+            (4, 'Arts Festival 2026', 'arts-festival-2026', 'Arts Competition organized in our college', 3,
+             'admin', 'admin', 1, '2026-04-25 03:00:00', '2026-04-25 04:30:00',
+             'Indus University , Auditorium Hall', 'offline', None, 90, '2026-04-06 05:00:00',
+             'event_banners/PeU4uUnVnUjpllaLeL4WM0yntXwSlQEVlygHnQ6a.jpg', 1, 'public', 'approved')
+        ]
+        
+        for event in default_events:
+            # Check if event already exists
+            cursor.execute("SELECT id FROM events WHERE id = %s", (event[0],))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO events (
+                        id, title, slug, description, event_category_id, created_by, organizer_type,
+                        organizer_id, start_datetime, end_datetime, venue, mode, meeting_link,
+                        max_participants, registration_deadline, banner_image, is_featured,
+                        visibility, status, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                """, event + ('approved',))
+        
+        connection.commit()
+        cursor.close()
+        connection.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Default events and categories seeded successfully!',
+            'events_added': len(default_events)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
