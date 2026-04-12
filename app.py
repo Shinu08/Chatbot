@@ -27,11 +27,11 @@ DB_CONFIG = {
 def get_db_connection():
     try:
         connection = pymysql.connect(
-            host=DB_CONFIG['host'],
-            port=DB_CONFIG['port'],
-            user=DB_CONFIG['user'],
-            password=DB_CONFIG['password'],
-            database=DB_CONFIG['database'],
+            host=DB_CONFIG['metro.proxy.rlwy.net'],
+            port=DB_CONFIG[13782],
+            user=DB_CONFIG['root'],
+            password=DB_CONFIG['rCcksrvhZVAYgbmXLQujAFYEjSSrXziw'],
+            database=DB_CONFIG['evently_db'],
             connect_timeout=30,
             cursorclass=pymysql.cursors.DictCursor
         )
