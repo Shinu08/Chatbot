@@ -209,6 +209,77 @@ def register_student_for_event_db(event_id, student_id):
 
 # ============= ADMIN API ENDPOINTS FOR MANUAL DATA ENTRY =============
 
+def get_events_from_db(category=None, event_id=None):
+    """Fetch events from database with fallback to local data"""
+    connection = get_db_connection()
+    
+    # If database connection fails, use fallback data
+    if not connection:
+        print("⚠️ Using fallback event data (database unavailable)")
+        return get_fallback_events(category, event_id)
+    
+    try:
+        cursor = connection.cursor()
+        
+        if event_id:
+            query = """
+                SELECT e.*, ec.name as category_name,
+                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+                FROM events e
+                JOIN event_categories ec ON e.event_category_id = ec.id
+                WHERE e.id = %s AND e.status = 'approved'
+            """
+            cursor.execute(query, (event_id,))
+            result = cursor.fetchone()
+            if result:
+                return format_event_for_api(result)
+            return None
+        
+        elif category:
+            category_map = {
+                'technical': 'Technology',
+                'career': 'Career & Learning',
+                'cultural': 'Entertainment',
+                'sports': 'Sports',
+                'academic': 'Arts & Creativity',
+                'wellness': 'Health & Wellness'
+            }
+            db_category = category_map.get(category, category)
+            
+            query = """
+                SELECT e.*, ec.name as category_name,
+                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+                FROM events e
+                JOIN event_categories ec ON e.event_category_id = ec.id
+                WHERE ec.name = %s AND e.status = 'approved'
+                ORDER BY e.start_datetime ASC
+            """
+            cursor.execute(query, (db_category,))
+            results = cursor.fetchall()
+            return [format_event_for_api(event) for event in results]
+        
+        else:
+            query = """
+                SELECT e.*, ec.name as category_name,
+                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+                FROM events e
+                JOIN event_categories ec ON e.event_category_id = ec.id
+                WHERE e.status = 'approved'
+                ORDER BY e.start_datetime ASC
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            return [format_event_for_api(event) for event in results]
+            
+    except Exception as err:
+        print(f"Database error: {err}")
+        print("⚠️ Falling back to local event data")
+        return get_fallback_events(category, event_id)
+    finally:
+        if connection:
+            cursor.close()
+            connection.close()
+
 @app.route('/api/admin/categories/create', methods=['POST'])
 def create_category():
     """Manually create an event category"""
