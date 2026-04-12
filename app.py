@@ -19,23 +19,19 @@ CORS(app)  # Enable CORS for all routes
 # These will be set as Environment Variables in Render
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', ''),
-    'database': os.environ.get('DB_NAME', 'railway'),
+    'database': os.environ.get('DB_NAME', 'evently_db'),
     'user': os.environ.get('DB_USER', ''),
     'password': os.environ.get('DB_PASSWORD', ''),
-    'port': int(os.environ.get('DB_PORT', 3306))
+    'port': int(os.environ.get('DB_PORT', 0))
 }
 
 def get_db_connection():
     """Create database connection for Railway MySQL from Render"""
     try:
-        # Validate config
-        if not DB_CONFIG['host'] or not DB_CONFIG['user']:
-            logger.error("Database configuration incomplete")
+        if not DB_CONFIG['host'] or not DB_CONFIG['user'] or not DB_CONFIG['password']:
+            print("Database configuration incomplete")
             return None
             
-        logger.info(f"Connecting to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
-        logger.info(f"Database: {DB_CONFIG['database']}")
-        
         connection = mysql.connector.connect(
             host=DB_CONFIG['host'],
             database=DB_CONFIG['database'],
@@ -43,17 +39,17 @@ def get_db_connection():
             password=DB_CONFIG['password'],
             port=DB_CONFIG['port'],
             connect_timeout=30,
-            use_pure=True
+            use_pure=True,
+            ssl_disabled=True  # Required for Railway's public proxy
         )
         
         if connection.is_connected():
-            logger.info("✅ Connected to Railway MySQL database")
+            print("✅ Connected to Railway MySQL database")
         return connection
         
     except Error as e:
-        logger.error(f"Database connection error: {e}")
+        print(f"Database connection error: {e}")
         return None
-
 # ============= EVENT FUNCTIONS =============
 def get_events_from_db(category=None, event_id=None):
     """Fetch events from Railway MySQL database"""
