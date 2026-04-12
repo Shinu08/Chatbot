@@ -6,6 +6,8 @@ from datetime import datetime
 import mysql.connector
 from mysql.connector import Error
 import logging
+from dotenv import load_dotenv
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
