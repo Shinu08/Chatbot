@@ -3,207 +3,61 @@ from flask_cors import CORS
 import os
 import re
 from datetime import datetime
-import pymysql
-from pymysql import Error
-import logging
-import socket
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import mysql.connector
+from mysql.connector import Error
 
 app = Flask(__name__)
+app.config['JSON_SORT_KEYS'] = False
 CORS(app)
 
-# ============= DATABASE CONFIGURATION =============
+# ============= RAILWAY DATABASE CONFIGURATION =============
+# Railway automatically injects these environment variables
+# For local testing, you can set them manually or use a .env file
 DB_CONFIG = {
-    'host': os.environ.get('DB_HOST', 'metro.proxy.rlwy.net'),
-    'database': os.environ.get('DB_NAME', 'evently_db'),
-    'user': os.environ.get('DB_USER', 'root'),
-    'password': os.environ.get('DB_PASSWORD', 'rCcksrvhZVAYgbmXLQujAFYEjSSrXziw'),
-    'port': int(os.environ.get('DB_PORT', 13782))
+    'host': os.environ.get('DB_HOST', os.environ.get('MYSQLHOST', 'mysql.railway.internal')),
+    'database': os.environ.get('DB_NAME', os.environ.get('MYSQLDATABASE', 'railway')),
+    'user': os.environ.get('DB_USER', os.environ.get('MYSQLUSER', 'root')),
+    'password': os.environ.get('DB_PASSWORD', os.environ.get('MYSQLPASSWORD', 'rCcksrvhZVAYgbmXLQujAFYEjSSrXziw')),
+    'port': int(os.environ.get('DB_PORT', os.environ.get('MYSQLPORT', 3306)))
 }
 
-# ============= FALLBACK EVENT DATA (from evently_db(2).sql) =============
-FALLBACK_EVENTS = [
-    {
-        "id": 1,
-        "title": "Plantation Programme",
-        "slug": "plantation-programme",
-        "description": "Planting Trees in nearby areas",
-        "category_id": 4,
-        "category_name": "Health & Wellness",
-        "frontend_category": "wellness",
-        "start_datetime": "2026-03-31 06:00:00",
-        "end_datetime": "2026-03-31 10:00:00",
-        "venue": "RPJ College",
-        "mode": "offline",
-        "meeting_link": None,
-        "max_participants": 250,
-        "registered_count": 0,
-        "created_by": "admin",
-        "banner_image": "event_banners/KxLelilbP9fzaQ0AGIgDmhHwDY9sPe9wOE1cb3ue.webp",
-        "is_featured": 1,
-        "status": "approved"
-    },
-    {
-        "id": 2,
-        "title": "Internship & Training Programme",
-        "slug": "internship-training-progrmme",
-        "description": "Internship & Training Opportunity to all the students",
-        "category_id": 2,
-        "category_name": "Career & Learning",
-        "frontend_category": "career",
-        "start_datetime": "2026-04-01 12:00:00",
-        "end_datetime": "2026-06-30 14:00:00",
-        "venue": "RPJ College - Online Mode",
-        "mode": "online",
-        "meeting_link": "https://randomdailyurls.com/",
-        "max_participants": 150,
-        "registered_count": 1,
-        "created_by": "admin",
-        "banner_image": "event_banners/6lCpka2YLLoosWOUTl3s5gd1K5TpnYzx6Mc5l0AO.jpg",
-        "is_featured": 1,
-        "status": "approved"
-    },
-    {
-        "id": 3,
-        "title": "Sports Day Event",
-        "slug": "sports-day-event",
-        "description": "Sports Day Organized in JK University",
-        "category_id": 6,
-        "category_name": "Sports",
-        "frontend_category": "sports",
-        "start_datetime": "2026-04-15 09:00:00",
-        "end_datetime": "2026-04-15 15:00:00",
-        "venue": "JK Sports Ground",
-        "mode": "offline",
-        "meeting_link": None,
-        "max_participants": 800,
-        "registered_count": 1,
-        "created_by": "admin",
-        "banner_image": "event_banners/Qs7BHFzYidUwlgD0mydfsxUpox5qCk1XkZ5kdg4z.jpg",
-        "is_featured": 1,
-        "status": "approved"
-    },
-    {
-        "id": 4,
-        "title": "Arts Festival 2026",
-        "slug": "arts-festival-2026",
-        "description": "Arts Competition organized in our college",
-        "category_id": 3,
-        "category_name": "Arts & Creativity",
-        "frontend_category": "academic",
-        "start_datetime": "2026-04-25 15:00:00",
-        "end_datetime": "2026-04-25 16:30:00",
-        "venue": "Indus University, Auditorium Hall",
-        "mode": "offline",
-        "meeting_link": None,
-        "max_participants": 90,
-        "registered_count": 1,
-        "created_by": "admin",
-        "banner_image": "event_banners/PeU4uUnVnUjpllaLeL4WM0yntXwSlQEVlygHnQ6a.jpg",
-        "is_featured": 1,
-        "status": "approved"
-    }
-]
-
-FALLBACK_CATEGORIES = [
-    {"id": 1, "name": "Entertainment", "slug": "entertainment", "frontend": "cultural"},
-    {"id": 2, "name": "Career & Learning", "slug": "career-learning", "frontend": "career"},
-    {"id": 3, "name": "Arts & Creativity", "slug": "arts-creativity", "frontend": "academic"},
-    {"id": 4, "name": "Health & Wellness", "slug": "health-wellness", "frontend": "wellness"},
-    {"id": 5, "name": "Technology", "slug": "technology", "frontend": "technical"},
-    {"id": 6, "name": "Sports", "slug": "sports", "frontend": "sports"},
-    {"id": 7, "name": "Travel & Lifestyle", "slug": "travel-lifestyle", "frontend": "lifestyle"}
-]
-
-# ============= DATABASE CONNECTION FUNCTION =============
 def get_db_connection():
-    """Create database connection for Railway MySQL from Render"""
+    """Create database connection for Railway"""
     try:
+        # Print debug info (remove in production)
         print(f"Connecting to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
+        print(f"Database: {DB_CONFIG['database']}")
+        print(f"User: {DB_CONFIG['user']}")
         
-        connection = pymysql.connect(
+        connection = mysql.connector.connect(
             host=DB_CONFIG['host'],
-            port=DB_CONFIG['port'],
+            database=DB_CONFIG['database'],
             user=DB_CONFIG['user'],
             password=DB_CONFIG['password'],
-            database=DB_CONFIG['database'],
-            connect_timeout=60,
-            read_timeout=60,
-            write_timeout=60,
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=True
+            port=DB_CONFIG['port'],
+            connect_timeout=10,
+            use_pure=True
         )
-        
-        # Test the connection
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-        
-        print("✅ Connected to Railway MySQL database successfully!")
+        if connection.is_connected():
+            print("✅ Connected to Railway MySQL database")
         return connection
-        
-    except Exception as e:
-        print(f"❌ Connection error: {e}")
+    except Error as e:
+        print(f"Database connection error: {e}")
         return None
 
-# ============= FALLBACK FUNCTIONS =============
-def get_fallback_events(category=None, event_id=None):
-    """Get events from fallback data when database is unavailable"""
-    if event_id:
-        event = next((e for e in FALLBACK_EVENTS if e['id'] == event_id), None)
-        if event:
-            return format_fallback_event(event)
-        return None
-    
-    if category:
-        filtered = [e for e in FALLBACK_EVENTS if e['frontend_category'] == category]
-        return [format_fallback_event(event) for event in filtered]
-    
-    return [format_fallback_event(event) for event in FALLBACK_EVENTS]
-
-def format_fallback_event(event):
-    """Format fallback event to match API response structure"""
-    start_date = datetime.strptime(event['start_datetime'], "%Y-%m-%d %H:%M:%S")
-    
-    return {
-        "id": event['id'],
-        "name": event['title'],
-        "category": event['frontend_category'],
-        "date": start_date.strftime("%B %d, %Y"),
-        "time": start_date.strftime("%I:%M %p"),
-        "location": event['venue'],
-        "description": event['description'],
-        "capacity": event['max_participants'],
-        "registered": event['registered_count'],
-        "speaker": event.get('created_by', 'University Organizer'),
-        "tags": [event['category_name'], event['mode']],
-        "price": "Free" if event['mode'] == 'offline' else "Check website",
-        "mode": event['mode'],
-        "meeting_link": event.get('meeting_link'),
-        "registration_deadline": None
-    }
-
-# ============= EVENT FUNCTIONS =============
 def get_events_from_db(category=None, event_id=None):
-    """Fetch events from database with fallback to local data"""
+    """Fetch events from database and format them to match original API structure"""
     connection = get_db_connection()
-    
-    # If database connection fails, use fallback data
     if not connection:
-        print("⚠️ Using fallback event data (database unavailable)")
-        return get_fallback_events(category, event_id)
+        print("No database connection, using fallback data")
+        return [] if not event_id else None
     
     try:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
         
         if event_id:
             query = """
-                SELECT e.*, ec.name as category_name,
-                       (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+                SELECT e.*, ec.name as category_name 
                 FROM events e
                 JOIN event_categories ec ON e.event_category_id = ec.id
                 WHERE e.id = %s AND e.status = 'approved'
@@ -211,17 +65,18 @@ def get_events_from_db(category=None, event_id=None):
             cursor.execute(query, (event_id,))
             result = cursor.fetchone()
             if result:
+                # Format database event to match original API structure
                 return format_event_for_api(result)
             return None
         
         elif category:
+            # Map category names to your database categories
             category_map = {
                 'technical': 'Technology',
-                'career': 'Career & Learning',
+                'career': 'Careet & Learning',
                 'cultural': 'Entertainment',
                 'sports': 'Sports',
-                'academic': 'Arts & Creativity',
-                'wellness': 'Health & Wellness'
+                'academic': 'Arts & Creativity'
             }
             db_category = category_map.get(category, category)
             
@@ -230,10 +85,10 @@ def get_events_from_db(category=None, event_id=None):
                        (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
                 FROM events e
                 JOIN event_categories ec ON e.event_category_id = ec.id
-                WHERE ec.name = %s AND e.status = 'approved'
+                WHERE ec.name LIKE %s AND e.status = 'approved'
                 ORDER BY e.start_datetime ASC
             """
-            cursor.execute(query, (db_category,))
+            cursor.execute(query, (f'%{db_category}%',))
             results = cursor.fetchall()
             return [format_event_for_api(event) for event in results]
         
@@ -250,17 +105,17 @@ def get_events_from_db(category=None, event_id=None):
             results = cursor.fetchall()
             return [format_event_for_api(event) for event in results]
             
-    except Exception as err:
+    except Error as err:
         print(f"Database error: {err}")
-        print("⚠️ Falling back to local event data")
-        return get_fallback_events(category, event_id)
+        return [] if not event_id else None
     finally:
-        if connection:
+        if connection.is_connected():
             cursor.close()
             connection.close()
 
 def format_event_for_api(db_event):
-    """Convert database event format to API response format"""
+    """Convert database event format to match original API event structure"""
+    # Format date from datetime to readable string
     start_date = db_event['start_datetime']
     if isinstance(start_date, datetime):
         date_str = start_date.strftime("%B %d, %Y")
@@ -269,24 +124,42 @@ def format_event_for_api(db_event):
         date_str = str(start_date) if start_date else "Date TBA"
         time_str = "Time TBA"
     
-    category_mapping = {
-        'Technology': 'technical',
-        'Career & Learning': 'career',
-        'Entertainment': 'cultural',
-        'Sports': 'sports',
-        'Arts & Creativity': 'academic',
-        'Health & Wellness': 'wellness',
-        'Travel & Lifestyle': 'lifestyle'
+    # Map category ID to category name
+    category_map = {
+        1: 'entertainment',
+        2: 'career',
+        3: 'arts',
+        4: 'wellness',
+        5: 'technology',
+        6: 'sports',
+        7: 'lifestyle'
     }
     
-    category_name = db_event.get('category_name', 'Technology')
-    frontend_category = category_mapping.get(category_name, 'technical')
+    # Get category name from event_categories table or use mapping
+    if 'category_name' in db_event and db_event['category_name']:
+        category_lower = db_event['category_name'].lower()
+        if 'technology' in category_lower:
+            category = 'technical'
+        elif 'careet' in category_lower or 'learning' in category_lower:
+            category = 'career'
+        elif 'entertainment' in category_lower:
+            category = 'cultural'
+        elif 'sports' in category_lower:
+            category = 'sports'
+        elif 'arts' in category_lower:
+            category = 'academic'
+        else:
+            category = category_lower
+    else:
+        category = category_map.get(db_event.get('event_category_id', 1), 'technical')
+    
+    # Get registered count
     registered = db_event.get('registered_count', 0)
     
     return {
         "id": db_event['id'],
         "name": db_event['title'],
-        "category": frontend_category,
+        "category": category,
         "date": date_str,
         "time": time_str,
         "location": db_event['venue'],
@@ -294,32 +167,82 @@ def format_event_for_api(db_event):
         "capacity": db_event['max_participants'] if db_event['max_participants'] else 999,
         "registered": registered,
         "speaker": db_event.get('created_by', 'University Organizer'),
-        "tags": [category_name, db_event.get('mode', 'offline')],
+        "tags": [db_event.get('category_name', 'Event'), db_event.get('mode', 'offline')],
         "price": "Free" if db_event.get('mode') == 'offline' else "Check website",
         "mode": db_event['mode'],
         "meeting_link": db_event.get('meeting_link'),
         "registration_deadline": db_event['registration_deadline'].strftime("%B %d, %Y") if db_event['registration_deadline'] else None
     }
 
-def register_student_for_event_db(event_id, student_id):
-    """Register a student for an event with fallback support"""
+def get_upcoming_events_from_db(days=30):
+    """Get events happening in next N days"""
     connection = get_db_connection()
-    
-    # If no database connection, use fallback
     if not connection:
-        print("⚠️ Database unavailable, checking fallback events for registration")
-        event = next((e for e in FALLBACK_EVENTS if e['id'] == event_id), None)
-        if event:
-            if event['registered_count'] < event['max_participants']:
-                event['registered_count'] += 1
-                return True, f"✅ Successfully registered for {event['title']}! (Demo mode)"
-            else:
-                return False, f"Sorry, {event['title']} is full"
-        return False, "Event not found"
+        return []
     
     try:
-        cursor = connection.cursor()
+        cursor = connection.cursor(dictionary=True)
+        query = """
+            SELECT e.*, ec.name as category_name,
+                   (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+            FROM events e
+            JOIN event_categories ec ON e.event_category_id = ec.id
+            WHERE e.start_datetime BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL %s DAY)
+            AND e.status = 'approved'
+            ORDER BY e.start_datetime ASC
+        """
+        cursor.execute(query, (days,))
+        results = cursor.fetchall()
+        return [format_event_for_api(event) for event in results]
+    except Error as err:
+        print(f"Database error: {err}")
+        return []
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+def get_trending_events_from_db(limit=5):
+    """Get most popular events based on registrations"""
+    connection = get_db_connection()
+    if not connection:
+        return []
+    
+    try:
+        cursor = connection.cursor(dictionary=True)
+        query = """
+            SELECT e.*, ec.name as category_name,
+                   COUNT(er.id) as registration_count,
+                   (SELECT COUNT(*) FROM event_registrations WHERE event_id = e.id) as registered_count
+            FROM events e
+            JOIN event_categories ec ON e.event_category_id = ec.id
+            LEFT JOIN event_registrations er ON e.id = er.event_id
+            WHERE e.status = 'approved'
+            GROUP BY e.id
+            ORDER BY registration_count DESC
+            LIMIT %s
+        """
+        cursor.execute(query, (limit,))
+        results = cursor.fetchall()
+        return [format_event_for_api(event) for event in results]
+    except Error as err:
+        print(f"Database error: {err}")
+        return []
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+def register_student_for_event_db(event_id, student_id):
+    """Register a student for an event in database"""
+    connection = get_db_connection()
+    if not connection:
+        return False, "Database connection failed"
+    
+    try:
+        cursor = connection.cursor(dictionary=True)
         
+        # Check if event exists and has capacity
         cursor.execute("""
             SELECT max_participants, title,
                    (SELECT COUNT(*) FROM event_registrations WHERE event_id = %s) as current_registrations
@@ -334,6 +257,7 @@ def register_student_for_event_db(event_id, student_id):
         if event['max_participants'] and event['current_registrations'] >= event['max_participants']:
             return False, f"Sorry, {event['title']} is full"
         
+        # Check if already registered
         cursor.execute("""
             SELECT id FROM event_registrations 
             WHERE event_id = %s AND student_id = %s
@@ -342,10 +266,12 @@ def register_student_for_event_db(event_id, student_id):
         if cursor.fetchone():
             return False, "Already registered for this event"
         
+        # Generate registration ID
         cursor.execute("SELECT COUNT(*) as count FROM event_registrations")
         count = cursor.fetchone()['count']
         reg_id = f"EVT-{str(count + 1).zfill(4)}"
         
+        # Register student
         cursor.execute("""
             INSERT INTO event_registrations (event_id, student_id, reg_id, status, created_at, updated_at)
             VALUES (%s, %s, %s, 'approved', NOW(), NOW())
@@ -354,204 +280,410 @@ def register_student_for_event_db(event_id, student_id):
         connection.commit()
         return True, f"✅ Successfully registered for {event['title']}! Registration ID: {reg_id}"
         
-    except Exception as err:
+    except Error as err:
         print(f"Database error: {err}")
         return False, f"Database error: {err}"
     finally:
-        if connection:
+        if connection.is_connected():
             cursor.close()
             connection.close()
 
+def get_event_categories_from_db():
+    """Get all event categories from database"""
+    connection = get_db_connection()
+    if not connection:
+        return []
+    
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT id, name, slug FROM event_categories WHERE is_active = 1")
+        return cursor.fetchall()
+    except Error as err:
+        print(f"Database error: {err}")
+        return []
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+def get_db_stats():
+    """Get statistics from database"""
+    connection = get_db_connection()
+    if not connection:
+        return None
+    
+    try:
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("SELECT COUNT(*) as total FROM events WHERE status = 'approved'")
+        total_events = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT COUNT(*) as total FROM event_registrations")
+        total_registrations = cursor.fetchone()['total']
+        
+        cursor.execute("SELECT SUM(max_participants) as total FROM events WHERE status = 'approved'")
+        total_capacity = cursor.fetchone()['total'] or 0
+        
+        return {
+            'total_events': total_events,
+            'total_registrations': total_registrations,
+            'total_capacity': total_capacity,
+            'average_fill_rate': round((total_registrations / total_capacity) * 100, 2) if total_capacity > 0 else 0
+        }
+    except Error as err:
+        print(f"Database error: {err}")
+        return None
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
+# ============= FALLBACK EVENT DATABASE (in case database is not available) =============
+EVENTS = [
+    {
+        "id": 1,
+        "name": "Plantation Programme",
+        "category": "wellness",
+        "date": "March 31, 2026",
+        "time": "06:00 AM - 10:00 AM",
+        "location": "RPJ College",
+        "description": "Planting Trees in nearby areas",
+        "capacity": 250,
+        "registered": 0,
+        "speaker": "Admin",
+        "tags": ["Health", "Wellness", "Environment"],
+        "price": "Free",
+        "mode": "offline"
+    },
+    {
+        "id": 2,
+        "name": "Internship & Training Programme",
+        "category": "career",
+        "date": "April 1, 2026",
+        "time": "12:00 PM",
+        "location": "RPJ College - Online Mode",
+        "description": "Internship & Training Opportunity to all the students",
+        "capacity": 150,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Career", "Internship", "Training"],
+        "price": "Free",
+        "mode": "online",
+        "meeting_link": "https://randomdailyurls.com/"
+    },
+    {
+        "id": 3,
+        "name": "Sports Day Event",
+        "category": "sports",
+        "date": "April 15, 2026",
+        "time": "09:00 AM",
+        "location": "JK Sports Ground",
+        "description": "Sports Day Organized in JK University",
+        "capacity": 800,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Sports", "Tournament"],
+        "price": "Free",
+        "mode": "offline"
+    },
+    {
+        "id": 4,
+        "name": "Arts Festival 2026",
+        "category": "arts",
+        "date": "April 25, 2026",
+        "time": "03:00 PM - 04:30 PM",
+        "location": "Indus University, Auditorium Hall",
+        "description": "Arts Competition organized in our college",
+        "capacity": 90,
+        "registered": 1,
+        "speaker": "Admin",
+        "tags": ["Arts", "Creativity", "Festival"],
+        "price": "Free",
+        "mode": "offline"
+    }
+]
+
+user_sessions = {}
+
+INTEREST_MAP = {
+    "technical": ["coding", "programming", "ai", "machine learning", "hackathon", "python", "tech", "software", "developer", "computer", "data science", "technology"],
+    "career": ["job", "internship", "career", "placement", "recruitment", "company", "interview", "resume", "networking", "salary", "employment", "training"],
+    "cultural": ["cultural", "festival", "music", "dance", "art", "performance", "celebration", "traditional", "food", "concert", "show", "entertainment"],
+    "sports": ["sports", "basketball", "tournament", "fitness", "yoga", "game", "athletics", "competition", "wellness", "exercise", "workout"],
+    "academic": ["research", "symposium", "academic", "study", "paper", "conference", "seminar", "workshop", "presentation", "thesis"],
+    "wellness": ["health", "wellness", "plantation", "environment", "green", "nature"]
+}
+
+def detect_interest(message):
+    message_lower = message.lower()
+    scores = {}
+    
+    for category, keywords in INTEREST_MAP.items():
+        score = sum(2 if keyword in message_lower else 0 for keyword in keywords)
+        if score > 0:
+            scores[category] = score
+    
+    if scores:
+        return max(scores, key=scores.get)
+    return None
+
+def generate_response(message, user_id=None):
+    msg_lower = message.lower()
+    
+    if any(word in msg_lower for word in ["help", "commands", "what can you do"]):
+        return {
+            "response": "Available Commands:\n\n"
+                       "📌 Find Events:\n"
+                       "• 'Show technical events' - Technology events\n"
+                       "• 'Show career events' - Internships, training\n"
+                       "• 'Show sports events' - Sports tournaments\n"
+                       "• 'Show wellness events' - Health, plantation\n"
+                       "• 'Show arts events' - Cultural, arts festival\n\n"
+                       "🔍 Browse:\n"
+                       "• 'Upcoming events' - Events happening soon\n"
+                       "• 'Trending events' - Most popular events\n"
+                       "• 'All events' - List all events\n\n"
+                       "📝 Register:\n"
+                       "• 'Register for event 1' - Register for specific event\n\n"
+                       "ℹ️ Details:\n"
+                       "• 'Tell me about Plantation Programme' - Get event details",
+            "intent": "help"
+        }
+    
+    if "register" in msg_lower:
+        numbers = re.findall(r'\d+', message)
+        if numbers:
+            event_id = int(numbers[0])
+            student_id = 1
+            success, result = register_student_for_event_db(event_id, student_id)
+            
+            if success:
+                return {"response": result, "intent": "registration"}
+            else:
+                event = next((e for e in EVENTS if e['id'] == event_id), None)
+                if event:
+                    if event['registered'] < event['capacity']:
+                        event['registered'] += 1
+                        return {"response": f"✅ Successfully registered for {event['name']}!", "event": event, "intent": "registration"}
+                    else:
+                        return {"response": f"❌ Sorry, {event['name']} is full!", "intent": "registration_failed"}
+                else:
+                    return {"response": f"❌ Event with ID {event_id} not found.", "intent": "registration_failed"}
+        else:
+            return {"response": "Please specify event ID. Example: 'Register for event 1'", "intent": "registration_help"}
+    
+    # Try database first for event details
+    db_events = get_events_from_db()
+    if db_events:
+        for event in db_events:
+            if event.get('name', '').lower() in msg_lower:
+                return {"response": event, "intent": "event_details"}
+    else:
+        for event in EVENTS:
+            if event['name'].lower() in msg_lower:
+                return {"response": event, "intent": "event_details"}
+    
+    if any(word in msg_lower for word in ["upcoming", "this week", "soon"]):
+        db_upcoming = get_upcoming_events_from_db(30)
+        if db_upcoming:
+            return {"response": db_upcoming, "intent": "upcoming_events", "count": len(db_upcoming)}
+        else:
+            return {"response": EVENTS[:5], "intent": "upcoming_events", "count": len(EVENTS[:5])}
+    
+    if any(word in msg_lower for word in ["trending", "popular", "hot"]):
+        db_trending = get_trending_events_from_db(3)
+        if db_trending:
+            return {"response": db_trending, "intent": "trending_events"}
+        else:
+            trending = sorted(EVENTS, key=lambda x: x['registered']/x['capacity'], reverse=True)[:3]
+            return {"response": trending, "intent": "trending_events"}
+    
+    if "all events" in msg_lower or "list all" in msg_lower:
+        db_all = get_events_from_db()
+        if db_all:
+            return {"response": db_all, "intent": "all_events", "count": len(db_all)}
+        else:
+            return {"response": EVENTS, "intent": "all_events", "count": len(EVENTS)}
+    
+    categories = {
+        "technical": ["technical", "coding", "programming", "ai", "hackathon", "technology"],
+        "career": ["career", "job", "internship", "placement", "training"],
+        "sports": ["sports", "basketball", "tournament", "fitness", "yoga", "game"],
+        "wellness": ["wellness", "health", "plantation", "environment", "nature"],
+        "arts": ["arts", "cultural", "festival", "music", "dance", "entertainment"]
+    }
+    
+    for category, keywords in categories.items():
+        if any(keyword in msg_lower for keyword in keywords):
+            db_filtered = get_events_from_db(category=category)
+            if db_filtered:
+                return {"response": db_filtered, "intent": f"{category}_events", "category": category, "count": len(db_filtered)}
+            else:
+                filtered = [e for e in EVENTS if e['category'] == category]
+                return {"response": filtered, "intent": f"{category}_events", "category": category, "count": len(filtered)}
+    
+    interest = detect_interest(message)
+    if interest:
+        db_interest = get_events_from_db(category=interest)
+        if db_interest:
+            return {"response": db_interest, "intent": "recommended_events", "interest": interest, "count": len(db_interest)}
+        else:
+            filtered = [e for e in EVENTS if e['category'] == interest]
+            if filtered:
+                return {"response": filtered, "intent": "recommended_events", "interest": interest, "count": len(filtered)}
+    
+    if any(word in msg_lower for word in ["hello", "hi", "hey"]):
+        return {"response": "Hello! I'm your University Event Assistant. Type 'help' to see what I can do!", "intent": "greeting"}
+    
+    return {"response": "I'm not sure about that. Type 'help' to see all commands or tell me what events you're interested in!", "intent": "unknown"}
+
 # ============= API ENDPOINTS =============
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
-    connection = get_db_connection()
-    db_status = "connected" if connection else "disconnected"
-    if connection:
-        connection.close()
-    
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'database': db_status,
-        'database_host': DB_CONFIG['host'],
-        'database_name': DB_CONFIG['database']
-    })
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+        
+        message = data.get('message', '').strip()
+        user_id = data.get('user_id', None)
+        
+        if not message:
+            return jsonify({'success': False, 'error': 'Message is required'}), 400
+        
+        result = generate_response(message, user_id)
+        return jsonify({'success': True, 'message': message, **result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events', methods=['GET'])
 def get_events():
-    """Get events with optional category filter"""
     try:
         category = request.args.get('category')
         event_id = request.args.get('id')
         
         if event_id:
-            event = get_events_from_db(event_id=int(event_id))
+            db_event = get_events_from_db(event_id=int(event_id))
+            if db_event:
+                return jsonify({'success': True, 'event': db_event})
+            event = next((e for e in EVENTS if e['id'] == int(event_id)), None)
             if event:
                 return jsonify({'success': True, 'event': event})
             return jsonify({'success': False, 'error': 'Event not found'}), 404
         
         if category:
-            events = get_events_from_db(category=category)
-            return jsonify({
-                'success': True,
-                'events': events,
-                'count': len(events),
-                'category': category
-            })
+            db_filtered = get_events_from_db(category=category)
+            if db_filtered:
+                return jsonify({'success': True, 'events': db_filtered, 'count': len(db_filtered), 'category': category})
+            filtered = [e for e in EVENTS if e['category'].lower() == category.lower()]
+            return jsonify({'success': True, 'events': filtered, 'count': len(filtered), 'category': category})
         
-        events = get_events_from_db()
-        return jsonify({
-            'success': True,
-            'events': events,
-            'count': len(events)
-        })
+        db_events = get_events_from_db()
+        if db_events:
+            return jsonify({'success': True, 'events': db_events, 'count': len(db_events)})
+        return jsonify({'success': True, 'events': EVENTS, 'count': len(EVENTS)})
     except Exception as e:
-        logger.error(f"Error in get_events: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events/<int:event_id>', methods=['GET'])
 def get_event_by_id(event_id):
-    """Get single event by ID"""
     try:
-        event = get_events_from_db(event_id=event_id)
+        db_event = get_events_from_db(event_id=event_id)
+        if db_event:
+            return jsonify({'success': True, 'event': db_event})
+        event = next((e for e in EVENTS if e['id'] == event_id), None)
         if event:
             return jsonify({'success': True, 'event': event})
         return jsonify({'success': False, 'error': 'Event not found'}), 404
     except Exception as e:
-        logger.error(f"Error in get_event_by_id: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/events/<int:event_id>/register', methods=['POST'])
 def register_for_event(event_id):
-    """Register for an event"""
     try:
-        data = request.get_json() or {}
-        student_id = data.get('student_id', 1)
+        data = request.get_json()
+        student_id = data.get('student_id', 1) if data else 1
         
         success, message = register_student_for_event_db(event_id, student_id)
-        
         if success:
             return jsonify({'success': True, 'message': message})
-        else:
-            return jsonify({'success': False, 'error': message}), 400
+        
+        event = next((e for e in EVENTS if e['id'] == event_id), None)
+        if not event:
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
+        if event['registered'] >= event['capacity']:
+            return jsonify({'success': False, 'error': f'Sorry, {event["name"]} is full'}), 400
+        
+        event['registered'] += 1
+        return jsonify({'success': True, 'message': f'Successfully registered for {event["name"]}', 'event': event})
     except Exception as e:
-        logger.error(f"Error in register_for_event: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
-    """Get all event categories"""
-    connection = get_db_connection()
-    if not connection:
-        # Return fallback categories
-        return jsonify({'success': True, 'categories': [c['name'] for c in FALLBACK_CATEGORIES]})
-    
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT name FROM event_categories WHERE is_active = 1")
-        categories = [row['name'] for row in cursor.fetchall()]
-        return jsonify({'success': True, 'categories': categories})
-    except Exception as err:
-        logger.error(f"Error in get_categories: {err}")
-        return jsonify({'success': True, 'categories': [c['name'] for c in FALLBACK_CATEGORIES]})
-    finally:
-        if connection:
-            cursor.close()
-            connection.close()
+    db_categories = get_event_categories_from_db()
+    if db_categories:
+        return jsonify({'success': True, 'categories': [c['name'] for c in db_categories]})
+    categories = list(set([e['category'] for e in EVENTS]))
+    return jsonify({'success': True, 'categories': categories})
 
-@app.route('/api/status', methods=['GET'])
-def api_status():
-    """Show API status and data source"""
-    connection = get_db_connection()
-    db_available = connection is not None
-    if connection:
-        connection.close()
-    
-    return jsonify({
-        'database_connected': db_available,
-        'data_source': 'database' if db_available else 'fallback (local events)',
-        'events_available': len(FALLBACK_EVENTS),
-        'categories_available': len(FALLBACK_CATEGORIES),
-        'events': [{'id': e['id'], 'name': e['title']} for e in FALLBACK_EVENTS]
-    })
+@app.route('/api/stats', methods=['GET'])
+def get_stats():
+    db_stats = get_db_stats()
+    if db_stats:
+        return jsonify({'success': True, 'stats': db_stats})
+    total_events = len(EVENTS)
+    total_registrations = sum(e['registered'] for e in EVENTS)
+    total_capacity = sum(e['capacity'] for e in EVENTS)
+    return jsonify({'success': True, 'stats': {'total_events': total_events, 'total_registrations': total_registrations, 'total_capacity': total_capacity, 'average_fill_rate': round((total_registrations / total_capacity) * 100, 2)}})
 
-@app.route('/debug/env', methods=['GET'])
-def debug_env():
-    """Debug environment variables"""
-    return jsonify({
-        'DB_HOST': os.environ.get('DB_HOST'),
-        'DB_PORT': os.environ.get('DB_PORT'),
-        'DB_USER': os.environ.get('DB_USER'),
-        'DB_PASSWORD': '***' + os.environ.get('DB_PASSWORD', '')[-4:] if os.environ.get('DB_PASSWORD') else None,
-        'DB_NAME': os.environ.get('DB_NAME')
-    })
-
-@app.route('/api/diagnose', methods=['GET'])
-def diagnose_connection():
-    """Comprehensive database connection diagnosis"""
-    results = {
-        'config': {
-            'host': DB_CONFIG['host'],
-            'port': DB_CONFIG['port'],
-            'database': DB_CONFIG['database'],
-            'user': DB_CONFIG['user'],
-        },
-        'tests': {}
-    }
-    
-    # Test DNS Resolution
-    try:
-        ip = socket.gethostbyname(DB_CONFIG['host'])
-        results['tests']['dns_resolution'] = f"✅ SUCCESS - Resolved to {ip}"
-    except Exception as e:
-        results['tests']['dns_resolution'] = f"❌ FAILED - {str(e)}"
-        return jsonify(results)
-    
-    # Test Port Connectivity
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(10)
-        result = sock.connect_ex((DB_CONFIG['host'], DB_CONFIG['port']))
-        sock.close()
-        if result == 0:
-            results['tests']['port_connectivity'] = f"✅ SUCCESS - Port {DB_CONFIG['port']} is open"
-        else:
-            results['tests']['port_connectivity'] = f"❌ FAILED - Error code: {result}"
-    except Exception as e:
-        results['tests']['port_connectivity'] = f"❌ FAILED - {str(e)}"
-    
-    return jsonify(results)
+@app.route('/health', methods=['GET'])
+def health_check():
+    db_status = "connected" if get_db_connection() else "disconnected"
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat(), 'events_count': len(EVENTS), 'version': '1.0.0', 'database': db_status})
 
 @app.route('/', methods=['GET'])
 def root():
-    """Root endpoint with API information"""
     return jsonify({
         'name': 'University Event Chatbot API',
         'version': '1.0.0',
         'description': 'AI-powered event management chatbot for universities',
-        'database_host': DB_CONFIG['host'],
-        'database_name': DB_CONFIG['database'],
         'endpoints': {
-            'GET /': 'API Information',
-            'GET /health': 'Health check',
+            'POST /api/chat': 'Send messages to chatbot',
             'GET /api/events': 'Get all events',
             'GET /api/events?category=technical': 'Filter events by category',
-            'GET /api/events/{id}': 'Get specific event',
-            'POST /api/events/{id}/register': 'Register for event',
-            'GET /api/categories': 'Get event categories',
-            'GET /api/status': 'API status and data source',
-            'GET /debug/env': 'Debug environment variables',
-            'GET /api/diagnose': 'Database connection diagnosis'
+            'GET /api/events/{id}': 'Get specific event by ID',
+            'POST /api/events/{id}/register': 'Register for an event',
+            'GET /api/categories': 'Get all event categories',
+            'GET /api/stats': 'Get API statistics',
+            'GET /health': 'Health check'
         }
     })
 
+@app.route('/debug/env', methods=['GET'])
+def debug_env():
+    """Debug endpoint to check environment variables (remove in production)"""
+    return jsonify({
+        'DB_HOST': os.environ.get('DB_HOST', 'mysql.railway.internal'),
+        'DB_NAME': os.environ.get('DB_NAME', 'evently_db'),
+        'DB_USER': os.environ.get('DB_USER', 'root'),
+        'DB_PORT': os.environ.get('DB_PORT', '3306'),
+        'MYSQLHOST': os.environ.get('MYSQLHOST', 'mysql.railway.internal'),
+        'MYSQLDATABASE': os.environ.get('MYSQLDATABASE', 'railway'),
+        'MYSQLUSER': os.environ.get('MYSQLUSER', 'root'),
+        'MYSQLPORT': os.environ.get('MYSQLPORT', '3306'),
+        'database_configured': all([DB_CONFIG['host'] != 'localhost', DB_CONFIG['user'] != 'root'])
+    })
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'success': False, 'error': 'Endpoint not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(e):
+    return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Starting Flask app on port {port}")
-    print(f"📊 Database Host: {DB_CONFIG['host']}")
-    print(f"📊 Database Name: {DB_CONFIG['database']}")
-    print(f"📋 Fallback events loaded: {len(FALLBACK_EVENTS)} events")
     app.run(host='0.0.0.0', port=port, debug=False)
